@@ -1,33 +1,189 @@
 # NextGen Career Matching — Backend API
 
-AI-сервис карьерного матчинга студентов и работодателей на основе FastAPI + Supabase + Google Gemini + Groq.
+> AI-сервис карьерного матчинга студентов и работодателей.  
+> **Stack:** FastAPI · Supabase · Google Gemini 1.5 Flash · Groq llama-3.3-70b · PyGithub · pdfplumber
+
+---
 
 ## Быстрый старт
 
 ```bash
-# 1. Установить зависимости
+# 1. Клонировать и перейти в папку
+cd backend
+
+# 2. Создать виртуальное окружение
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
+
+# 3. Установить зависимости
 pip install -r requirements.txt
 
-# 2. Создать .env файл
+# 4. Создать .env
 cp .env.example .env
-# Заполнить переменные в .env
+# Заполнить все переменные (см. секцию ниже)
 
-# 3. Применить SQL схему в Supabase (см. ниже)
+# 5. Применить SQL схему в Supabase (один раз)
+# Скопировать SQL из секции ниже → Supabase SQL Editor → Run
 
-# 4. Запустить сервер
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 6. Запустить
+uvicorn app.main:app --reload --port 8000
 ```
 
-Документация API: http://localhost:8000/docs
+**Документация:** http://localhost:8000/docs  
+**Health check:** http://localhost:8000/health → `{"status":"healthy","version":"1.0.0"}`
+
+---
+
+## Переменные окружения (`.env`)
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-role-key
+GEMINI_API_KEY=your-gemini-api-key
+GROQ_API_KEY=your-groq-api-key
+GITHUB_TOKEN=your-github-personal-access-token
+JWT_SECRET=your-supabase-jwt-secret
+```
+
+| Переменная | Где взять |
+|---|---|
+| `SUPABASE_URL` | Supabase → Settings → API → Project URL |
+| `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → `service_role` key |
+| `GEMINI_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com) |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) |
+| `GITHUB_TOKEN` | GitHub → Settings → Developer settings → Personal access tokens |
+| `JWT_SECRET` | Supabase → Settings → API → JWT Secret |
+
+---
+
+## Структура проекта
+
+```
+backend/
+├── app/
+│   ├── main.py                  # FastAPI приложение, CORS, роутеры
+│   ├── config.py                # Настройки из .env (pydantic-settings)
+│   ├── db/
+│   │   └── supabase_client.py   # Supabase клиент (service_role)
+│   ├── middleware/
+│   │   └── auth.py              # JWT верификация + role-based зависимости
+│   ├── models/
+│   │   ├── student.py           # Pydantic: профиль студента, GitHub, резюме
+│   │   ├── vacancy.py           # Pydantic: создание/обновление вакансий
+│   │   └── match.py             # Pydantic: матчинг, рекомендации, Gemini payload
+│   ├── services/
+│   │   ├── pdf_service.py       # pdfplumber — извлечение текста из PDF
+│   │   ├── github_service.py    # PyGithub — анализ репозиториев
+│   │   ├── groq_service.py      # Groq llama-3.3-70b — структурирование резюме
+│   │   ├── gemini_service.py    # Gemini 1.5 Flash — матчинг и рекомендации
+│   │   └── matching_service.py  # Бизнес-логика: кеш 24ч, вызов Gemini, upsert
+│   └── routers/
+│       ├── students.py          # /api/v1/students/*
+│       ├── employers.py         # /api/v1/employers/*
+│       ├── ai.py                # /api/v1/ai/*
+│       └── analytics.py        # /api/v1/analytics/*
+├── test_services.py             # Тест AI сервисов без Supabase
+├── test_pdf_parsing.py          # Тест парсинга PDF резюме
+├── .env.example                 # Шаблон переменных окружения
+├── .gitignore
+└── requirements.txt
+```
+
+---
+
+## API Эндпоинты
+
+### Students `/api/v1/students/` 🔒 role: student
+
+| Метод | URL | Описание |
+|---|---|---|
+| `POST` | `/profile` | Создать / обновить профиль |
+| `GET` | `/profile` | Получить свой профиль |
+| `POST` | `/upload-resume` | Загрузить PDF резюме (multipart/form-data) |
+| `POST` | `/connect-github` | Привязать GitHub → добавить технологии |
+| `GET` | `/matches` | Топ вакансий по AI матчингу |
+| `GET` | `/recommendations` | Персональные карьерные советы от Gemini |
+
+### Employers `/api/v1/employers/` 🔒 role: employer
+
+| Метод | URL | Описание |
+|---|---|---|
+| `POST` | `/vacancies` | Создать вакансию |
+| `GET` | `/vacancies` | Список своих вакансий |
+| `PUT` | `/vacancies/{id}` | Обновить вакансию |
+| `GET` | `/vacancies/{id}/candidates` | Топ кандидатов (AI матчинг) |
+
+### AI `/api/v1/ai/` 🔒 role: any
+
+| Метод | URL | Описание |
+|---|---|---|
+| `POST` | `/analyze-skills` | Извлечь навыки из произвольного текста (Groq) |
+| `GET` | `/recommendations` | AI карьерные рекомендации (Gemini) |
+
+### Analytics `/api/v1/analytics/` 🔒 role: any
+
+| Метод | URL | Описание |
+|---|---|---|
+| `GET` | `/top-skills` | Топ востребованных навыков/технологий на рынке |
+| `GET` | `/readiness` | Распределение готовности студентов к трудоустройству |
+| `GET` | `/trends` | Gap-анализ: спрос работодателей vs предложение студентов |
+
+### Health (без авторизации)
+
+| Метод | URL | Ответ |
+|---|---|---|
+| `GET` | `/` | `{"status":"ok","service":"...","version":"1.0.0"}` |
+| `GET` | `/health` | `{"status":"healthy","version":"1.0.0"}` |
+
+---
+
+## AI Pipeline
+
+```
+POST /upload-resume
+  └─ pdfplumber → извлечь текст
+      └─ Groq (llama-3.3-70b) → структурировать в JSON {skills, technologies}
+          └─ Merge с профилем → upsert в Supabase
+
+POST /connect-github
+  └─ PyGithub → репозитории + языки программирования
+      └─ Добавить технологии к профилю студента
+
+GET /matches
+  └─ Для каждой активной вакансии:
+      ├─ Найти кеш в matches (< 24ч) → вернуть сразу
+      └─ Нет кеша → Gemini 1.5 Flash анализирует пару студент↔вакансия
+              └─ upsert результата в matches → вернуть
+```
+
+---
+
+## Авторизация
+
+Используется **Supabase Auth**. Фронт логинится, получает JWT токен и передаёт его во все запросы:
+
+```
+Authorization: Bearer <supabase_jwt_token>
+```
+
+Роль задаётся при регистрации через `user_metadata.role`:
+
+```js
+await supabase.auth.signUp({
+  email, password,
+  options: { data: { role: 'student' } }  // 'student' | 'employer' | 'university'
+})
+```
 
 ---
 
 ## SQL Схема Supabase
 
-Выполните следующие SQL запросы в **Supabase SQL Editor**:
+Выполнить в **Supabase → SQL Editor**:
 
 ```sql
--- Таблица профилей студентов
+-- Профили студентов
 CREATE TABLE student_profiles (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -46,7 +202,7 @@ CREATE TABLE student_profiles (
     UNIQUE(user_id)
 );
 
--- Таблица вакансий работодателей
+-- Вакансии работодателей
 CREATE TABLE vacancies (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     employer_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -62,12 +218,12 @@ CREATE TABLE vacancies (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Таблица кешированных результатов матчинга
+-- Кеш результатов AI матчинга (TTL 24ч)
 CREATE TABLE matches (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     student_id UUID NOT NULL REFERENCES student_profiles(id) ON DELETE CASCADE,
     vacancy_id UUID NOT NULL REFERENCES vacancies(id) ON DELETE CASCADE,
-    match_percent INT NOT NULL CHECK (match_percent >= 0 AND match_percent <= 100),
+    match_percent INT NOT NULL CHECK (match_percent BETWEEN 0 AND 100),
     strong_skills TEXT[] DEFAULT '{}',
     missing_skills TEXT[] DEFAULT '{}',
     explanation TEXT,
@@ -75,7 +231,7 @@ CREATE TABLE matches (
     UNIQUE(student_id, vacancy_id)
 );
 
--- Таблица истории навыков студентов
+-- История навыков студентов (снапшоты при каждом обновлении профиля)
 CREATE TABLE skill_history (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     student_id UUID NOT NULL REFERENCES student_profiles(id) ON DELETE CASCADE,
@@ -83,24 +239,21 @@ CREATE TABLE skill_history (
     snapshot_date TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Автообновление updated_at при изменениях
+-- Автообновление updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_student_profiles_updated_at
+CREATE TRIGGER trg_student_profiles_updated_at
     BEFORE UPDATE ON student_profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
-CREATE TRIGGER trigger_vacancies_updated_at
+CREATE TRIGGER trg_vacancies_updated_at
     BEFORE UPDATE ON vacancies
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- Индексы для производительности
+-- Индексы
 CREATE INDEX idx_student_profiles_user_id ON student_profiles(user_id);
 CREATE INDEX idx_vacancies_employer_id ON vacancies(employer_id);
 CREATE INDEX idx_vacancies_is_active ON vacancies(is_active);
@@ -112,69 +265,42 @@ CREATE INDEX idx_skill_history_student_id ON skill_history(student_id);
 
 ### Supabase Storage
 
-Создайте bucket с именем `resumes` в **Storage → New bucket**:
-- **Name**: `resumes`
-- **Public**: ✅ (включить для публичных URL резюме)
-
-### Настройка JWT
-
-В **Settings → API** скопируйте `JWT Secret` в переменную `JWT_SECRET`.
-
-Роли пользователей задаются через **Supabase Auth → Users** или при регистрации через `user_metadata`:
-
-```json
-{
-  "role": "student"
-}
-```
-
-Доступные роли: `student`, `employer`, `university`.
+Создать bucket **`resumes`** в Storage → New bucket:
+- **Name:** `resumes`
+- **Public:** ✅ включить
 
 ---
 
-## Архитектура
+## Тестирование
 
-```
-app/
-├── main.py                  # FastAPI точка входа
-├── config.py                # Настройки из .env
-├── db/
-│   └── supabase_client.py   # Supabase клиент
-├── middleware/
-│   └── auth.py              # JWT аутентификация + role-based доступ
-├── models/
-│   ├── student.py           # Pydantic модели студентов
-│   ├── vacancy.py           # Pydantic модели вакансий
-│   └── match.py             # Pydantic модели матчинга
-├── services/
-│   ├── pdf_service.py       # Парсинг PDF резюме
-│   ├── github_service.py    # Анализ GitHub профилей
-│   ├── groq_service.py      # Groq API (структурирование данных)
-│   ├── gemini_service.py    # Gemini API (матчинг + рекомендации)
-│   └── matching_service.py  # Бизнес-логика матчинга + кеш
-└── routers/
-    ├── students.py          # /api/v1/students/*
-    ├── employers.py         # /api/v1/employers/*
-    ├── ai.py                # /api/v1/ai/*
-    └── analytics.py        # /api/v1/analytics/*
+```bash
+# Проверить AI сервисы без Supabase (Groq, Gemini, GitHub)
+python test_services.py
+
+# Проверить парсинг PDF резюме
+python test_pdf_parsing.py
+
+# Swagger UI (все эндпоинты)
+# http://localhost:8000/docs
 ```
 
-## Эндпоинты
+---
 
-| Метод | URL | Роль | Описание |
-|-------|-----|------|----------|
-| POST | `/api/v1/students/profile` | student | Создать/обновить профиль |
-| GET | `/api/v1/students/profile` | student | Получить свой профиль |
-| POST | `/api/v1/students/upload-resume` | student | Загрузить PDF резюме |
-| POST | `/api/v1/students/connect-github` | student | Привязать GitHub |
-| GET | `/api/v1/students/matches` | student | Топ подходящих вакансий |
-| GET | `/api/v1/students/recommendations` | student | AI карьерные советы |
-| POST | `/api/v1/employers/vacancies` | employer | Создать вакансию |
-| GET | `/api/v1/employers/vacancies` | employer | Мои вакансии |
-| PUT | `/api/v1/employers/vacancies/{id}` | employer | Обновить вакансию |
-| GET | `/api/v1/employers/vacancies/{id}/candidates` | employer | Топ кандидатов |
-| POST | `/api/v1/ai/analyze-skills` | any | Извлечь навыки из текста |
-| GET | `/api/v1/ai/recommendations` | student | AI рекомендации |
-| GET | `/api/v1/analytics/top-skills` | any | Топ востребованных навыков |
-| GET | `/api/v1/analytics/readiness` | any | Готовность студентов |
-| GET | `/api/v1/analytics/trends` | any | Тренды рынка труда |
+## Деплой
+
+```bash
+# Продакшен (4 воркера)
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+```dockerfile
+# Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+```
+
+> ⚠️ В продакшене заменить `allow_origins=["*"]` на конкретный домен фронтенда в `app/main.py`
